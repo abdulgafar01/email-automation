@@ -1,0 +1,26 @@
+/* Project documentation tweaks */
+
+:root {
+  --md-admonition-icon--safety: url('data:image/svg+xml;charset=utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5l-9-4z"/></svg>');
+}
+
+/* A custom "safety" admonition used to highlight the never-send guarantee */
+.md-typeset .admonition.safety,
+.md-typeset details.safety {
+  border-color: #2e7d32;
+}
+.md-typeset .safety > .admonition-title,
+.md-typeset .safety > summary {
+  background-color: rgba(46, 125, 50, 0.1);
+}
+.md-typeset .safety > .admonition-title::before,
+.md-typeset .safety > summary::before {
+  background-color: #2e7d32;
+  -webkit-mask-image: var(--md-admonition-icon--safety);
+          mask-image: var(--md-admonition-icon--safety);
+}
+
+/* Slightly tighter tables for reference pages */
+.md-typeset table:not([class]) th {
+  white-space: nowrap;
+}

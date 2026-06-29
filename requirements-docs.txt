@@ -1,0 +1,5 @@
+# Documentation toolchain (not required to run the app).
+# Install with:  pip install -r requirements-docs.txt
+# Serve locally: mkdocs serve
+# Build static:  mkdocs build
+mkdocs-material==9.5.39

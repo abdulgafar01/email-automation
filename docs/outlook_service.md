@@ -1,97 +1,124 @@
+---
+title: outlook_service.py
+---
+
 # `src/outlook_service.py` — Talking to Outlook
 
-## What it does
-Wraps the Outlook desktop app (via pywin32 COM). It connects to Outlook, finds
-the master template draft, and for each `Contact` creates a **new personalized
-draft** — setting the recipient, Cc, subject and the generated table — then
-saves it. It **never sends**.
+!!! abstract "At a glance"
+    **Responsibility:** drive the Outlook desktop app via pywin32 COM — connect,
+    find the template, and build a new draft per row. **Depends on:** pywin32,
+    [`html_table_generator`](html_table_generator.md), [`models`](models.md),
+    [`exceptions`](exceptions.md), [`logger`](logger.md). **Pure:** no (Windows +
+    Outlook).
+
+!!! safety "Never sends"
+    Only `MailItem.Save()` is called. There is no `.Send()` anywhere.
 
 ## Why it exists
-All the Windows/COM/Outlook-specific complexity lives here, behind a small,
-clean interface (`connect`, `locate_template`, `create_draft_for`). The rest of
-the app doesn't need to know anything about COM. If you later switch to
-Microsoft Graph or Gmail, you'd add a new service and leave everything else
-alone.
 
-## Why it is built this way
+All Windows/COM/Outlook complexity lives here behind a small interface
+(`connect`, `locate_template`, `create_draft_for`). The rest of the app knows
+nothing about COM — so a future Microsoft Graph or Gmail backend would just be a
+new service.
 
-### pywin32 COM automation
-```python
-self._app = win32com.client.Dispatch("Outlook.Application")
-self._namespace = self._app.GetNamespace("MAPI")
+## Reference
+
+### `OutlookService(template_subject, template_entryid=None, subject_columns=7, table_placeholder="{{TABLE}}", cc_address="")`
+
+| Param | Meaning |
+| --- | --- |
+| `template_subject` | Subject used to locate the master draft |
+| `template_entryid` | Optional exact EntryID (wins over subject) |
+| `subject_columns` | Leading columns joined into the subject |
+| `table_placeholder` | Token replaced by the table; appended if absent |
+| `cc_address` | Fixed Cc on every draft (`;`-separated); empty = leave as-is |
+
+#### `connect() -> None`
+
+Dispatches `Outlook.Application` and gets the MAPI namespace. Imports `win32com`
+**lazily** so the module imports on any OS for testing the non-COM logic.
+
+**Raises:** `OutlookConnectionError`.
+
+#### `locate_template() -> MailItem`
+
+Finds the master draft by EntryID or by scanning Drafts for the subject, then
+caches it as a `.oft`. **Raises:** `TemplateNotFoundError`.
+
+#### `create_draft_for(contact) -> str`
+
+The core operation. Returns the new draft's EntryID.
+
+```mermaid
+sequenceDiagram
+    participant S as OutlookService
+    participant X as Outlook
+    participant H as html_table_generator
+    S->>X: CreateItemFromTemplate(.oft)  %% fresh copy
+    S->>X: To = contact.recipient
+    S->>X: CC = cc_address (if set)
+    S->>X: Subject = contact.subject(n)
+    S->>H: generate_html_table(values)
+    H-->>S: <table>…</table>
+    S->>X: HTMLBody = insert table
+    S->>X: Save()  %% never Send
+    X-->>S: EntryID
 ```
-This drives the **real, signed-in Outlook** on the PC, so every draft inherits
-your actual account, signature and formatting. COM only works **locally** — the
-script must run on the same machine as Outlook (this is why automation uses RDP
-+ Task Scheduler, not remote calls).
 
-### Lazy import of `win32com`
-```python
-def connect(self):
-    import win32com.client
-```
-The import is inside `connect()`, not at the top of the file. That lets the
-module be imported and unit-tested on **any** OS (e.g. for the table/insert
-logic) without pywin32 installed. The Outlook dependency is only needed when you
-actually connect.
+#### Internal helpers
 
-### Finding the template: subject or EntryID
-```python
-if self.template_entryid: ... GetItemFromID(...)
-else: scan Drafts for matching Subject
-```
-- By **subject** (`MASTER TEMPLATE`) is easy and human-friendly.
-- By **EntryID** is exact and unambiguous if you ever have two drafts with the
-  same subject. Configurable via `TEMPLATE_ENTRYID`.
+- `_cache_template_as_oft()` — `SaveAs(path, olTemplate)` once, so drafts are made
+  from a template instead of `Copy()`.
+- `_new_from_template()` — `CreateItemFromTemplate(.oft)`, falling back to
+  `template.Copy()`.
+- `_insert_table(html_body, table_html)` — replace `{{TABLE}}` or insert before
+  `</body>`.
+
+## Design decisions
+
+??? note "Why lazy-import `win32com`?"
+    Putting the import inside `connect()` lets the module be imported and
+    unit-tested on any OS (e.g. the table/insert logic) without pywin32 installed.
 
 ### Duplicating via an `.oft` template — the key robustness fix
+
 ```python
 self._template.SaveAs(path, OL_SAVE_AS_TEMPLATE)   # cache once
 ...
-self._app.CreateItemFromTemplate(self._oft_path)   # fresh copy per row
+self._app.CreateItemFromTemplate(self._oft_path)    # fresh copy per row
 ```
-**Why not just `template.Copy()`?** If your master draft was created with
-*Reply* or *Forward*, Outlook marks it an "inline response item" and `Copy()`
-fails with *"This method can't be used with an inline response mail item."*
-Saving the template once as a `.oft` and creating each draft from it sidesteps
-that limitation **and** preserves fonts, images, hyperlinks and the signature.
-If saving the `.oft` fails for any reason, it falls back to `Copy()`
-automatically.
+
+!!! warning "Why not just `template.Copy()`?"
+    If the master draft was created via **Reply/Forward**, Outlook marks it an
+    *inline response item* and `Copy()` fails with *“This method can't be used with
+    an inline response mail item.”* Saving the template as a `.oft` and creating
+    each draft from it sidesteps that **and** preserves fonts, images, hyperlinks
+    and the signature. If the `.oft` save fails, it falls back to `Copy()`.
 
 ### Only three things change per row
-```python
-new_mail.To = contact.recipient                 # column A
-if self.cc_address: new_mail.CC = self.cc_address
-new_mail.Subject = contact.subject(self.subject_columns)  # first 7 columns
-new_mail.HTMLBody = self._insert_table(new_mail.HTMLBody, table_html)
-```
-Everything else (layout, signature, embedded images) comes untouched from the
-template copy — meeting the "preserve existing formatting" requirement.
+
+`To`, `Cc`, `Subject` and the `{{TABLE}}` content. Everything else comes untouched
+from the template copy — satisfying the “preserve formatting” requirement.
 
 ### Table insertion: placeholder or append
+
 ```python
 if self.table_placeholder in body:
     return body.replace(self.table_placeholder, table_html)
 idx = body.lower().rfind("</body>")
-return body[:idx] + table_html + body[idx:]   # else insert before </body>
+return body[:idx] + table_html + body[idx:]
 ```
-- If the draft contains `{{TABLE}}`, the table goes exactly there.
-- Otherwise it's inserted just before `</body>` so it appears at the end while
-  keeping the signature and existing HTML valid.
 
-### `Save()`, never `Send()`
-```python
-new_mail.Save()  # saved as a draft; never .Send()
-```
-The single most important safety guarantee in the project. There is no `.Send()`
-call anywhere.
+## Outlook constants
 
-### Returns the new draft's EntryID
-Useful for logging and for future features like duplicate detection or building
-a report of what was created.
-
-## Outlook constants used
 | Constant | Value | Meaning |
-|----------|-------|---------|
+| --- | --- | --- |
 | `OL_FOLDER_DRAFTS` | 16 | The Drafts default folder |
 | `OL_SAVE_AS_TEMPLATE` | 2 | Save a mail item as a `.oft` template |
+
+## See also
+
+- [Running & Automation](running-and-automation.md) — why COM needs an
+  interactive local session
+- [Troubleshooting](reference/troubleshooting.md) — the inline-response and
+  template-not-found errors

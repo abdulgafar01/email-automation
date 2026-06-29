@@ -1,66 +1,97 @@
+---
+title: excel_reader.py
+---
+
 # `src/excel_reader.py` — Reading the spreadsheet
 
-## What it does
-Opens an `.xlsx` workbook with **openpyxl**, treats the first row as headers,
-and returns one `Contact` per non-empty data row.
+!!! abstract "At a glance"
+    **Responsibility:** turn a messy `.xlsx` into clean `Contact` objects.
+    **Depends on:** openpyxl, [`models`](models.md), [`exceptions`](exceptions.md),
+    [`logger`](logger.md). **Pure:** no (does file I/O).
 
 ## Why it exists
-This is the single boundary between "messy spreadsheet" and "clean Python
-objects". All the awkward parts of reading Excel — empty cells, whitespace,
-ragged rows — are handled here so no other module has to care.
 
-## Why it is built this way
+This is the single boundary between “messy spreadsheet” and “clean Python
+objects”. All the awkward parts — empty cells, whitespace, ragged rows — are
+handled here so no other module has to care.
 
-### openpyxl, not pandas
-The project requirement is explicitly **no pandas**. openpyxl is lightweight,
-reads `.xlsx` natively, and has no heavy numeric dependencies — ideal for a
-simple "read rows" job on a locked-down work PC.
+## Reference
 
-### Read-only + data-only mode
+### `class ExcelReader(path, sheet_name=None)`
+
+| Param | Meaning |
+| --- | --- |
+| `path` | Path to the workbook |
+| `sheet_name` | Optional sheet; defaults to the **first** worksheet |
+
+#### `read() -> list[Contact]`
+
+Opens the workbook, skips the header row, and returns one `Contact` per non-empty
+data row.
+
 ```python
-load_workbook(self.path, read_only=True, data_only=True)
-```
-- `read_only=True` streams rows instead of loading the whole file into memory —
-  fast and light, and it can't accidentally modify your file.
-- `data_only=True` returns the **computed value** of formula cells, not the
-  formula text — so a cell showing `110` gives you `110`, not `=A1*2`.
+from pathlib import Path
+from src.excel_reader import ExcelReader
 
-### First row = headers, data starts at row 2
-```python
-header_row = next(rows)
-for row_number, raw in enumerate(rows, start=2):
+contacts = ExcelReader(Path("data/contacts.xlsx")).read()
+print(len(contacts), contacts[0].recipient)
 ```
-Matches the spec ("treat the first row as headers"). `start=2` keeps
-`row_number` aligned with what you see in Excel.
 
-### Column count from the header row
-```python
-col_count = self._last_non_empty_index(headers) + 1
+```mermaid
+flowchart TD
+    A[open read_only + data_only] --> B[read header row]
+    B --> C[col_count = last non-empty header + 1]
+    C --> D[for each row from 2]
+    D --> E[trim each cell to str]
+    E --> F{row empty?}
+    F -->|yes| D
+    F -->|no| G[Contact values, row_number, headers]
+    G --> D
+    D --> H{any contacts?}
+    H -->|no| I[[EmptyWorkbookError]]
+    H -->|yes| J[return list]
 ```
-The number of real columns is taken from the last non-empty header. Each data
-row is then read to exactly that width, so trailing blank cells don't create
-stray empty `<td>`s later, and short rows are padded with `""`.
 
-### Trimming and empty-row handling
-```python
-@staticmethod
-def _clean(value): return "" if value is None else str(value).strip()
-...
-if contact.is_empty(): continue
-```
-- Every cell is converted to a trimmed string (the spec asks to trim
-  whitespace), so `" Dave "` becomes `"Dave"`.
-- Fully blank rows are skipped (the spec asks to ignore empty rows).
+**Raises:** `WorkbookError` (file missing), `EmptyWorkbookError` (no header / no
+data) — both fatal.
 
-### Clear failure modes
-Raises `WorkbookError` (file missing) or `EmptyWorkbookError` (no header / no
-data). These are the *fatal* family, so `main.py` stops the run with a helpful
-message instead of crashing.
+#### Internal helpers
+
+- `_clean(value) -> str` — `None` → `""`, otherwise `str(value).strip()`.
+- `_last_non_empty_index(cells) -> int` — index of the last non-empty header,
+  used to fix the row width.
+
+## Design decisions
+
+??? note "Why openpyxl and not pandas?"
+    The project requirement is explicitly **no pandas**. openpyxl reads `.xlsx`
+    natively with no heavy numeric dependencies — ideal for a locked-down PC.
+
+??? note "Why `read_only=True, data_only=True`?"
+    - `read_only` streams rows (fast, low memory, can't modify your file).
+    - `data_only` returns a formula cell's **computed value** (`110`), not its
+      formula text (`=A1*2`).
+
+??? note "Why compute a fixed column count?"
+    Taking the width from the last non-empty header means short rows are padded
+    with `""` and trailing blank cells don't create stray empty `<td>`s later.
 
 ## Known gotcha: "only N rows were read"
+
 In `read_only=True` mode, openpyxl trusts the worksheet's **declared dimension**
-stored in the file. Some exporters (SAP, web tools, certain Outlook/Excel
-exports) write a too-small dimension, so `iter_rows` stops early. If you ever see
-fewer rows than the file really has, the fix is to ask openpyxl to recompute the
-range with `worksheet.reset_dimensions()` (or read with `read_only=False`). This
-is a property of the source file, not a bug in your data.
+stored in the file. Some exporters (SAP, web tools, certain Excel/Outlook exports)
+under-declare it, so `iter_rows` stops early.
+
+!!! warning "Fix"
+    Recompute the real range before iterating:
+    ```python
+    ws.reset_dimensions()   # forces openpyxl to rescan used cells
+    ```
+    or open with `read_only=False`. This is a property of the **source file**, not
+    your data. See also the [Data contract note](reference/data-contract.md#notes-gotchas).
+
+## See also
+
+- [`models.py`](models.md) — the objects produced here
+- [Data contract](reference/data-contract.md) — the interpretation rules
+- [Troubleshooting](reference/troubleshooting.md)

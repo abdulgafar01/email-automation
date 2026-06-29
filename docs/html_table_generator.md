@@ -1,59 +1,89 @@
+---
+title: html_table_generator.py
+---
+
 # `src/html_table_generator.py` — Building the HTML table
 
-## What it does
-Turns a row's values into a standalone HTML `<table>` string. One reusable
-function: `generate_html_table(values, headers=None)`.
+!!! abstract "At a glance"
+    **Responsibility:** turn a row's values into a standalone HTML `<table>`.
+    **Depends on:** stdlib (`html.escape`). **Pure:** yes — the easiest module to
+    test.
 
 ## Why it exists
-The spec says: don't edit an existing HTML table — **generate a new one** for
-every row, containing every column, for any number of columns. Keeping this in
-its own module means it can be **tested on its own** (no Outlook, no Excel) and
-reused anywhere.
 
-## Why it is built this way
+The spec says: don't edit an existing table — **generate a new one** for every
+row, containing every column, for any number of columns. Isolating this makes it
+**independently testable** (no Outlook, no Excel) and reusable.
 
-### A pure function
-It takes data in and returns a string out — no Outlook, no files, no global
-state. Pure functions are the easiest things in a codebase to test and reason
-about. You can verify the exact HTML with a one-line test.
+## Reference
 
-### Works for any number of columns
+### `generate_html_table(values, headers=None) -> str`
+
+| Param | Meaning |
+| --- | --- |
+| `values` | The row's cell values → one `<td>` each |
+| `headers` | Optional labels → renders a `<th>` header row |
+
+**Returns:** a complete `<table>…</table>` string.
+
 ```python
-data_cells = "".join(_cell(v) for v in values)
-```
-It simply loops over whatever values it's given, so a 5-column row and a
-20-column row both work with no code change — exactly as required.
+from src.html_table_generator import generate_html_table
 
-### HTML escaping (security + correctness)
-```python
-from html import escape
-return f"<td>{escape(text)}</td>"
-```
-Spreadsheet text can contain `<`, `>`, `&` or even `<script>`. Without escaping,
-such content could **break the email's HTML** or inject markup. `html.escape`
-turns `<b>` into `&lt;b&gt;`, so the cell shows the literal text and the
-surrounding Outlook body stays intact. This addresses the OWASP "injection"
-risk for generated markup.
-
-### Optional headers
-```python
-def generate_html_table(values, headers=None):
-```
-The current flow passes only `values` (a single data row, per the spec), but the
-function can also render a `<th>` header row if you later want labelled tables —
-a small bit of future-proofing that costs nothing now.
-
-### Matches the spec's markup
-```python
-_TABLE_ATTRS = 'border="1" cellspacing="0" cellpadding="5"'
-```
-The output mirrors the example in the requirements so the rendered table looks
-as expected inside Outlook.
-
-## Example
-```python
 generate_html_table(["80409", "121014959", "SUSPENDED"])
-# -> <table border="1" cellspacing="0" cellpadding="5">
-#      <tr><td>80409</td><td>121014959</td><td>SUSPENDED</td></tr>
-#    </table>
 ```
+```html
+<table border="1" cellspacing="0" cellpadding="5">
+  <tr><td>80409</td><td>121014959</td><td>SUSPENDED</td></tr>
+</table>
+```
+
+With headers:
+
+```python
+generate_html_table(["80409", "SUSPENDED"], headers=["Account", "Status"])
+```
+```html
+<table border="1" cellspacing="0" cellpadding="5">
+  <tr><th>Account</th><th>Status</th></tr>
+  <tr><td>80409</td><td>SUSPENDED</td></tr>
+</table>
+```
+
+### `_cell(value) -> str` (internal)
+
+Renders one escaped `<td>`; `None` becomes an empty cell.
+
+## Design decisions
+
+??? note "Why a pure function?"
+    Data in, string out — no Outlook, no files, no globals. Pure functions are the
+    easiest code to test and reason about; you can assert the exact HTML.
+
+??? note "Why escape every cell? (security)"
+    ```python
+    from html import escape
+    f"<td>{escape(text)}</td>"
+    ```
+    Spreadsheet text may contain `<`, `>`, `&`, even `<script>`. Without escaping,
+    such content could **break the email's HTML** or inject markup. `html.escape`
+    turns `<b>` into `&lt;b&gt;`, so the cell shows literal text and the
+    surrounding Outlook body stays intact. This addresses the OWASP injection risk
+    for generated markup.
+
+??? note "Why support optional headers if the flow doesn't use them?"
+    Cheap future-proofing: labelled tables become a one-argument change, with zero
+    cost today.
+
+## Tested behaviour
+
+| Input | Output cell |
+| --- | --- |
+| `"110"` | `<td>110</td>` |
+| `"<b>html</b>"` | `<td>&lt;b&gt;html&lt;/b&gt;</td>` |
+| `None` | `<td></td>` |
+| `" Dave "` | `<td>Dave</td>` |
+
+## See also
+
+- [`outlook_service.py`](outlook_service.md) — inserts this table into the body
+- [Data contract](reference/data-contract.md) — which columns appear

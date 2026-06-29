@@ -1,59 +1,84 @@
+---
+title: models.py
+---
+
 # `src/models.py` — The `Contact` data model
 
-## What it does
-Defines `Contact`, a small dataclass that represents **one row** of the
-spreadsheet, plus helper methods to get the recipient, build the subject, and
-check if the row is empty.
+!!! abstract "At a glance"
+    **Responsibility:** represent one spreadsheet row with meaningful accessors.
+    **Depends on:** stdlib. **Pure:** yes — trivially unit-testable.
 
 ## Why it exists
-The rest of the app shouldn't deal in raw lists of cells (`row[0]`, `row[6]`…).
-A `Contact` object gives those values **meaning** (`contact.recipient`,
-`contact.subject(7)`), so the Outlook code reads like the business rules and not
-like spreadsheet plumbing.
 
-## Why it is built this way
+The rest of the app shouldn't juggle raw cells (`row[0]`, `row[6]`). A `Contact`
+gives those values **meaning** (`contact.recipient`, `contact.subject(7)`), so the
+Outlook code reads like the business rules, not spreadsheet plumbing.
 
-### Positional, not header-based
+## Reference
+
+### `class Contact`
+
 ```python
 @dataclass
 class Contact:
-    values: List[str]
-    row_number: int = 0
-    headers: List[str] = ...
+    values: list[str]            # all cells of the row, trimmed
+    row_number: int = 0          # 1-based row index, for logging
+    headers: list[str] = ...     # column headers (optional)
 ```
-The requirements are **positional**: recipient = column A, subject = first 7
-columns, table = every column. So `Contact` stores `values` as an ordered list
-rather than a `{header: value}` dict. This matches the spec exactly and works
-even when column headers are inconsistent or missing.
 
-### `recipient` as a property
+#### `recipient: str` (property)
+
 ```python
 @property
 def recipient(self) -> str:
     return self.values[0] if self.values else ""
 ```
-Column A is the recipient. Exposing it as `contact.recipient` documents that
-rule in one place and guards against an empty row (no `IndexError`).
 
-### `subject(columns=7)` as a method
+Column A is the recipient. Exposed as a property to document the rule once and to
+guard against an empty row (no `IndexError`).
+
+#### `subject(columns: int = 7) -> str`
+
 ```python
 def subject(self, columns: int = 7) -> str:
     return " ".join(str(v).strip() for v in self.values[:columns])
 ```
-Joins the first N columns with spaces, exactly as the spec's example shows. It's
-a method (not a fixed string) so the count is configurable via
-`SUBJECT_COLUMNS`.
 
-### No email validation
-The recipient here can be a reference/account value like `514` or `80409`, not a
-classic email address — Outlook resolves it. So the model deliberately does
-**not** reject non-email recipients, which an earlier version did.
+Joins the first *N* columns with spaces — exactly the spec example. A method (not
+a stored string) so the count stays configurable via `SUBJECT_COLUMNS`.
 
-### `row_number` for logging
-Carrying the original 1-based row number means every log line and error can say
-"row 5", making it trivial to find the offending spreadsheet row.
+#### `is_empty() -> bool`
 
-## Used by
-- `excel_reader.py` builds `Contact` objects.
-- `outlook_service.py` reads `contact.recipient`, `contact.subject(...)`,
-  `contact.values`.
+True when every cell is blank; used by the reader to skip empty rows.
+
+## Example
+
+```python
+c = Contact(values=["514", "1526", "KOC-1", "Name", "ID", "SUSPENDED", "110", "n"],
+            row_number=2)
+c.recipient      # "514"
+c.subject(7)     # "514 1526 KOC-1 Name ID SUSPENDED 110"
+c.is_empty()     # False
+```
+
+## Design decisions
+
+??? note "Why positional (`values`) instead of a `{header: value}` dict?"
+    The requirements are positional: recipient = column A, subject = first 7,
+    table = every column. A list matches that exactly and works even when headers
+    are inconsistent or missing.
+
+??? note "Why no email validation?"
+    The recipient can be a reference/account value like `514` or `80409`, which
+    Outlook resolves. Validating it as an email would wrongly reject valid rows.
+
+??? note "Why carry `row_number`?"
+    Every log line and error can then say “row 5”, making the offending
+    spreadsheet row trivial to find.
+
+## See also
+
+- [`excel_reader.py`](excel_reader.md) — builds `Contact`s
+- [`outlook_service.py`](outlook_service.md) — consumes `recipient`, `subject`,
+  `values`
+- [Data contract](reference/data-contract.md)

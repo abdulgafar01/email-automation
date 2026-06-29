@@ -1,65 +1,94 @@
+---
+title: config.py
+---
+
 # `src/config.py` — Central configuration
 
-## What it does
-Defines a single `AppConfig` dataclass and a `load_config()` function that
-gathers every setting the app needs (which template, which Excel file, where
-logs go, subject column count, Cc address, etc.). It also auto-discovers the
-Excel file and resolves all paths.
+!!! abstract "At a glance"
+    **Responsibility:** be the single source of truth for every setting, resolve
+    paths against the project root, and auto-discover the Excel file.
+    **Depends on:** standard library only. **Pure:** yes.
 
 ## Why it exists
+
 Every other module needs settings. Instead of scattering hard-coded values
-("MASTER TEMPLATE", "data/contacts.xlsx", 7 columns…) across the codebase, they
-live in **one place**. Change a setting here and the whole app follows.
+(`"MASTER TEMPLATE"`, `data/contacts.xlsx`, `7`…) across the codebase, they live
+in **one immutable object**. Change a setting here and the whole app follows.
 
-## Why it is built this way
+## Public API
 
-### A frozen dataclass (`@dataclass(frozen=True)`)
-`AppConfig` is immutable. Once loaded, no module can accidentally change a
-setting at runtime, which prevents a whole class of confusing bugs. Dataclasses
-also give clean attribute access (`cfg.template_subject`) and free `repr`.
+### `class AppConfig`
 
-### Environment variables with sensible defaults
+A `@dataclass(frozen=True)` holding all settings. Frozen = immutable, so no
+module can change a setting at runtime (prevents a whole class of bugs) and you
+get clean attribute access plus a free `repr`.
+
+See the full field list in the [Configuration reference](reference/configuration.md#settings-table).
+
+### `load_config() -> AppConfig`
+
+Builds an `AppConfig` from defaults + environment variables.
+
 ```python
-DEFAULT_TEMPLATE_SUBJECT = os.getenv("TEMPLATE_SUBJECT", "MASTER TEMPLATE")
-```
-Each setting can be overridden with an environment variable, but works out of
-the box without one. This means:
-- Non-technical use: just run it, defaults apply.
-- Different machine/run: set an env var, no code edit, no redeploy.
+from src.config import load_config
 
-### Paths anchored to the project root
+cfg = load_config()
+print(cfg.template_subject)   # "MASTER TEMPLATE"
+print(cfg.excel_path)         # absolute path, auto-discovered
+```
+
+| Returns | Notes |
+| --- | --- |
+| `AppConfig` | Fully resolved; `excel_path` is absolute |
+
+### `discover_excel(data_dir, explicit=None) -> Path`
+
+Decides **which** workbook to read.
+
+```python
+discover_excel(Path("data"))                       # first *.xlsx in data/
+discover_excel(Path("data"), "C:/x/June.xlsx")     # explicit wins
+```
+
+```mermaid
+flowchart TD
+    A{explicit given?} -->|yes| B[_resolve(explicit)]
+    A -->|no| C[glob data/*.xlsx<br/>skip ~$ lock files]
+    C --> D{any?}
+    D -->|yes| E[first alphabetically]
+    D -->|no| F[data_dir/contacts.xlsx<br/>→ clear not-found error]
+```
+
+### `_resolve(path) -> Path` (internal)
+
+Anchors a relative path to `PROJECT_ROOT`; leaves absolute paths untouched.
+
 ```python
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-def _resolve(path): return path if path.is_absolute() else PROJECT_ROOT / path
+# "data/contacts.xlsx" → C:\...\email-automation\data\contacts.xlsx
 ```
-A relative path like `data/contacts.xlsx` would otherwise depend on the folder
-you happened to launch the command from — a common source of "file not found".
-Anchoring to the project root makes the app work no matter the current
-directory.
 
-### Auto-discovering the workbook (`discover_excel`)
-```python
-candidates = sorted(p for p in data_dir.glob("*.xlsx") if not p.name.startswith("~$"))
-return candidates[0] if candidates else (data_dir / "contacts.xlsx")
-```
-- You can drop **any** `.xlsx` into `data/` — no need to rename it.
-- `~$` lock files (created while Excel has the file open) are skipped.
-- If none exist, it returns a clear default path so the error message points you
-  at the `data/` folder.
-- An explicit `EXCEL_PATH` always wins, for when you need a specific file.
+## Design decisions
 
-### `never_send=True`
-A hard-coded safety flag documenting the project's golden rule: this tool
-creates drafts only.
+??? note "Why environment variables with defaults?"
+    Each setting can be overridden by an env var but works out of the box. Non
+    technical use needs no setup; a different machine or run just sets a variable
+    — no code edit, no redeploy.
 
-## Key settings
-| Setting | Env var | Default | Meaning |
-|---------|---------|---------|---------|
-| `template_subject` | `TEMPLATE_SUBJECT` | `MASTER TEMPLATE` | Subject used to find the template draft |
-| `excel_path` | `EXCEL_PATH` | auto-discovered | The workbook to read |
-| `data_dir` | `DATA_DIR` | `data/` | Folder scanned for an `.xlsx` |
-| `log_dir` | `LOG_DIR` | `logs/` | Where log files are written |
-| `outlook_entryid` | `TEMPLATE_ENTRYID` | unset | Pin the template by exact ID instead of subject |
-| `subject_columns` | `SUBJECT_COLUMNS` | `7` | How many leading columns form the subject |
-| `table_placeholder` | `TABLE_PLACEHOLDER` | `{{TABLE}}` | Token replaced by the generated table |
-| `cc_address` | `CC_ADDRESS` | empty | Fixed Cc on every draft (`;`-separated) |
+??? note "Why anchor paths to the project root?"
+    A relative path otherwise depends on the folder you launched from — a classic
+    “file not found” when run via Task Scheduler (which starts in `System32`).
+    Anchoring makes the app location-independent.
+
+??? note "Why auto-discover the workbook?"
+    So you can drop **any** `.xlsx` into `data/` without renaming it. Excel lock
+    files (`~$…`) are skipped; if none exist, a clear error points at `data/`.
+
+!!! safety "`never_send = True`"
+    A hard-coded flag documenting the golden rule: this tool creates drafts only.
+
+## See also
+
+- [Configuration reference](reference/configuration.md) — every field + env var
+- [Data contract](reference/data-contract.md) — how the file is read
+- [`main.py`](main.md) — the first thing it calls is `load_config()`

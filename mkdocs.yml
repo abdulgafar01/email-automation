@@ -1,0 +1,93 @@
+site_name: Email Automation — Outlook Draft Generator
+site_description: >-
+  Modular Python app that turns Excel rows into personalized Outlook drafts
+  from a master template. Never sends email.
+docs_dir: docs
+use_directory_urls: true
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+    - search.highlight
+    - search.suggest
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/git-alt
+
+extra_css:
+  - assets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.keys
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Modules:
+      - Overview: modules/index.md
+      - config.py: config.md
+      - logger.py: logger.md
+      - exceptions.py: exceptions.md
+      - models.py: models.md
+      - excel_reader.py: excel_reader.md
+      - html_table_generator.py: html_table_generator.md
+      - outlook_service.py: outlook_service.md
+      - main.py: main.md
+  - Guides:
+      - Running & Automation: running-and-automation.md
+      - Test data script: scripts.md
+      - Project structure: project-structure.md
+  - Reference:
+      - Configuration reference: reference/configuration.md
+      - Data contract (Excel): reference/data-contract.md
+      - Troubleshooting: reference/troubleshooting.md
+      - Glossary: reference/glossary.md

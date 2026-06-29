@@ -16,6 +16,9 @@ dist/
 *.egg-info/
 .eggs/
 
+# MkDocs generated site
+site/
+
 # Project runtime artifacts
 logs/*.log
 output/

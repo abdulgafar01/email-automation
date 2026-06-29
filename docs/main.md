@@ -1,70 +1,82 @@
+---
+title: main.py
+---
+
 # `src/main.py` — The orchestrator
 
-## What it does
-The entry point. Run with `python -m src.main`. It wires everything together:
-load config → set up logging → read Excel → connect Outlook → find template →
-create a draft per row → print a summary. Returns an exit code.
+!!! abstract "At a glance"
+    **Responsibility:** wire every module together in the right order and own the
+    overall flow, error handling and exit code. **Depends on:** all modules.
+    **Entry point:** `python -m src.main`.
 
 ## Why it exists
-Each module does one job; **something** has to call them in the right order and
-handle the overall flow and errors. That's `main.py`. Keeping the orchestration
-in one short, readable function makes the whole program easy to follow top to
-bottom.
 
-## Why it is built this way
+Each module does one job; **something** must call them in order and handle the
+big picture. Keeping orchestration in one short function makes the whole program
+readable top to bottom.
 
-### Strict order of operations
-```python
-cfg = load_config()
-setup_logging(cfg.log_dir)
-contacts = ExcelReader(cfg.excel_path).read()
-service.connect(); service.locate_template()
-for contact in contacts: service.create_draft_for(contact)
+## Reference
+
+### `run() -> int`
+
+The entire program. Returns an exit code.
+
+```mermaid
+flowchart TD
+    A[load_config] --> B[setup_logging]
+    B --> C[ExcelReader.read]
+    C -- WorkbookError --> X1[[exit 1]]
+    C --> D[OutlookService.connect + locate_template]
+    D -- Outlook/Template error --> X2[[exit 1]]
+    D --> E[for each Contact]
+    E --> F{create_draft_for}
+    F -- ok --> G[created++]
+    F -- EmailAutomationError --> H[failed++]
+    F -- unexpected --> H
+    G & H --> E
+    E --> I[[summary + exit 0/2]]
 ```
-Config and logging come first so everything afterwards is configured and logged.
-Excel is read before touching Outlook, so a bad spreadsheet fails fast and
-cheap, before opening Outlook.
 
-### Fatal vs recoverable error handling
-```python
-except WorkbookError:           # fatal → stop, return 1
-except (OutlookConnectionError, TemplateNotFoundError):  # fatal → stop, return 1
-...
-for contact in contacts:
-    try: service.create_draft_for(contact)
-    except EmailAutomationError: failed += 1   # recoverable → log, continue
-    except Exception: failed += 1              # unexpected → log, continue
-```
-This is the heart of the "continue processing remaining rows even if one fails"
-requirement. A single broken row increments `failed` and the loop moves on; the
-run still finishes and reports.
+## Design decisions
 
-### Catching unexpected errors too
-The extra `except Exception` around each row catches surprise COM errors (like
-the inline-response one) so one weird row can never abort the entire batch.
+??? note "Why this strict order?"
+    Config and logging come first so everything afterward is configured and
+    logged. Excel is read **before** touching Outlook, so a bad spreadsheet fails
+    fast and cheap.
 
-### A summary line and meaningful exit codes
-```python
-log.info("=== Summary: %d created, %d failed, %d total ===", ...)
-return 0 if failed == 0 else 2
-```
-- The summary tells you at a glance what happened.
-- Exit codes let **Task Scheduler** know the outcome:
-  `0` = all good, `1` = fatal setup error, `2` = finished with some row failures.
+??? note "Why two layers of row error handling?"
+    ```python
+    except EmailAutomationError: failed += 1   # known, expected
+    except Exception:            failed += 1   # surprise COM errors
+    ```
+    The extra `except Exception` ensures one weird row (e.g. an inline-response
+    quirk) can never abort the whole batch — fulfilling “continue processing
+    remaining rows”.
 
-### Helpful "where to put the file" hint
-On a workbook error it logs the `data/` folder path, so the most common mistake
-(no spreadsheet present) is obvious.
+## Exit codes
 
-## How to read a run's output
-```
+| Code | Meaning | Task Scheduler reads it as |
+| --- | --- | --- |
+| `0` | All rows succeeded | success |
+| `1` | Fatal setup error (workbook/Outlook/template) | failure |
+| `2` | Finished, but some rows failed | partial |
+
+## Reading a run
+
+```text
 === Email automation started (DRAFTS ONLY — never sends) ===
 Using workbook: ...\data\KOTC JUNE.xlsx
 Read 4 contact(s) ...
 Outlook connected
 Template located by subject: 'MASTER TEMPLATE'
 Draft created for '514' (row 2) -> EntryID ...
-...
 === Summary: 4 draft(s) created, 0 failed, 4 total ===
 ```
-Each line maps directly to a step above.
+
+Each line maps to a step in the diagram above.
+
+## See also
+
+- [Architecture](architecture.md) — full run lifecycle
+- [`exceptions.py`](exceptions.md) — the types that drive stop-vs-continue
+- [Running & Automation](running-and-automation.md)

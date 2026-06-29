@@ -15,6 +15,20 @@ For every row only the **To**, **Subject** and a generated **HTML table** are
 changed. Everything else in the template copy — fonts, colours, images,
 hyperlinks, signature, spacing and embedded objects — is preserved.
 
+## Documentation
+
+Full, browsable documentation lives in `docs/` (built with MkDocs Material):
+
+```powershell
+pip install -r requirements-docs.txt
+mkdocs serve     # then open http://127.0.0.1:8000
+```
+
+It covers the [architecture](docs/architecture.md), a per-file guide for every
+module, a [configuration reference](docs/reference/configuration.md), the
+[Excel data contract](docs/reference/data-contract.md) and
+[troubleshooting](docs/reference/troubleshooting.md).
+
 ## Requirements
 
 - Python 3.12+
