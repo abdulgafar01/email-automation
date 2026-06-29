@@ -33,11 +33,13 @@ def run() -> int:
     log.info("=== Email automation started (DRAFTS ONLY — never sends) ===")
 
     # 1. Read contacts ----------------------------------------------------
+    log.info("Using workbook: %s", cfg.excel_path)
     try:
         reader = ExcelReader(cfg.excel_path)
         contacts = reader.read()
     except WorkbookError as exc:
         log.error("Workbook error: %s", exc)
+        log.error("Place an .xlsx file in: %s", cfg.data_dir)
         return 1
 
     # 2. Connect to Outlook & locate template -----------------------------

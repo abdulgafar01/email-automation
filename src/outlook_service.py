@@ -10,6 +10,8 @@ template is never modified and no email is ever sent.
 
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import Optional
 
 from src.exceptions import OutlookConnectionError, TemplateNotFoundError
@@ -22,6 +24,8 @@ log = get_logger(__name__)
 # Outlook OlDefaultFolders constant for the Drafts folder.
 OL_FOLDER_DRAFTS = 16
 OL_FORMAT_HTML = 2
+# OlSaveAsType.olTemplate — saves a mail item as a reusable .oft template.
+OL_SAVE_AS_TEMPLATE = 2
 
 
 class OutlookService:
@@ -53,6 +57,7 @@ class OutlookService:
         self._app = None
         self._namespace = None
         self._template = None
+        self._oft_path: Optional[str] = None
 
     # --- connection -------------------------------------------------------
     def connect(self) -> None:
@@ -84,6 +89,7 @@ class OutlookService:
             try:
                 self._template = self._namespace.GetItemFromID(self.template_entryid)
                 log.info("Template located by EntryID")
+                self._cache_template_as_oft()
                 return self._template
             except Exception as exc:
                 raise TemplateNotFoundError(
@@ -96,6 +102,7 @@ class OutlookService:
                 if str(item.Subject).strip() == self.template_subject:
                     self._template = item
                     log.info("Template located by subject: '%s'", self.template_subject)
+                    self._cache_template_as_oft()
                     return item
             except Exception:  # pragma: no cover - odd items
                 continue
@@ -104,18 +111,53 @@ class OutlookService:
             f"No draft found with subject '{self.template_subject}'"
         )
 
+    def _cache_template_as_oft(self) -> None:
+        """Save the template as a temp .oft so new drafts can be created from it.
+
+        ``MailItem.Copy()`` fails on *inline response* items (templates created
+        via Reply/Forward) with "This method can't be used with an inline
+        response mail item." Creating drafts from an .oft template sidesteps
+        that entirely while preserving formatting, images and the signature.
+        Falls back silently to ``Copy()`` if the template can't be saved.
+        """
+        self._oft_path = None
+        try:
+            fd, path = tempfile.mkstemp(suffix=".oft")
+            os.close(fd)
+            os.remove(path)  # SaveAs needs to create the file itself
+            self._template.SaveAs(path, OL_SAVE_AS_TEMPLATE)
+            self._oft_path = path
+            log.info("Template cached as Outlook template (.oft)")
+        except Exception as exc:  # pragma: no cover - COM quirks
+            log.warning(
+                "Could not cache template as .oft (%s); falling back to Copy()",
+                exc,
+            )
+            self._oft_path = None
+
+    def _new_from_template(self):
+        """Return a fresh mail item duplicated from the template.
+
+        Prefers ``CreateItemFromTemplate`` (works for inline-response
+        templates); falls back to ``MailItem.Copy()``.
+        """
+        if self._oft_path:
+            return self._app.CreateItemFromTemplate(self._oft_path)
+        return self._template.Copy()
+
     # --- draft creation ---------------------------------------------------
     def create_draft_for(self, contact: Contact) -> str:
         """Create a personalized draft for *contact*. Returns the new EntryID.
 
-        The template is copied via ``MailItem.Copy`` so the original stays
-        untouched. Only the recipient, subject and the generated HTML table are
-        changed — all other formatting is preserved from the template copy.
+        A fresh item is duplicated from the template (via an .oft template, or
+        ``MailItem.Copy`` as a fallback) so the original stays untouched. Only
+        the recipient, Cc, subject and the generated HTML table are changed —
+        all other formatting is preserved.
         """
         if self._template is None:
             self.locate_template()
 
-        new_mail = self._template.Copy()
+        new_mail = self._new_from_template()
 
         # 1. Recipient — column A.
         new_mail.To = contact.recipient
