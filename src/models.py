@@ -31,7 +31,7 @@ class Contact:
         """Recipient address/value taken from the first column (Column A)."""
         return self.values[0] if self.values else ""
 
-    def subject(self, columns: int = 7) -> str:
+    def subject(self, columns: int = 8) -> str:
         """Build the subject by joining the first *columns* values with tabs."""
         return "\t".join(str(v).strip() for v in self.values[:columns])
 

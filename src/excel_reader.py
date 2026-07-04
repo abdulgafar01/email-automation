@@ -7,6 +7,7 @@ the recipient is column A and the subject is built from the first columns.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -39,7 +40,23 @@ class ExcelReader:
         wb = load_workbook(self.path, data_only=True)
         try:
             ws = wb[self.sheet_name] if self.sheet_name else wb.worksheets[0]
-            rows = ws.iter_rows(values_only=True)
+            
+            # To preserve formatting, iterate through cells and get formatted values
+            rows_from_worksheet = []
+            for row in ws.iter_rows():
+                row_values = []
+                for cell in row:
+                    if isinstance(cell.value, datetime):
+                        # Format datetime objects, checking the number format to avoid reformatting dates already as text
+                        if cell.number_format and 'd' in cell.number_format.lower():
+                             row_values.append(cell.value.strftime('%#m/%#d/%Y'))
+                        else:
+                            row_values.append(cell.value)
+                    else:
+                        row_values.append(cell.value)
+                rows_from_worksheet.append(row_values)
+
+            rows = iter(rows_from_worksheet)
 
             try:
                 header_row = next(rows)
@@ -58,15 +75,8 @@ class ExcelReader:
                 if raw is None:
                     continue
                 
-                processed_values = []
-                for cell_value in raw:
-                    if isinstance(cell_value, datetime):
-                        processed_values.append(cell_value.strftime('%#m/%#d/%Y'))
-                    else:
-                        processed_values.append(cell_value)
-
                 values = [
-                    self._clean(processed_values[i] if i < len(processed_values) else None)
+                    self._clean(raw[i] if i < len(raw) else None)
                     for i in range(col_count)
                 ]
                 contact = Contact(
