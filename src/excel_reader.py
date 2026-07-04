@@ -105,7 +105,22 @@ class ExcelReader:
             for row_index in range(1, row_count + 1):
                 row_values: List[object] = []
                 for col_index in range(1, col_count + 1):
-                    row_values.append(used_range.Cells(row_index, col_index).Text)
+                    cell_obj = used_range.Cells(row_index, col_index)
+                    text = str(cell_obj.Text)
+                    # When Excel displays a whole-number value in scientific
+                    # notation (e.g. "2.97032E+11" instead of "297032100292"),
+                    # fall back to the raw numeric value so precision is kept.
+                    upper = text.upper()
+                    if "E+" in upper or "E-" in upper:
+                        try:
+                            val2 = cell_obj.Value2
+                            if isinstance(val2, (int, float)) and not isinstance(val2, bool):
+                                fval = float(val2)
+                                if fval == int(fval):
+                                    text = str(int(fval))
+                        except Exception:
+                            pass
+                    row_values.append(text)
                 rows.append(row_values)
             return rows
         except Exception as exc:
@@ -131,7 +146,15 @@ class ExcelReader:
 
     @staticmethod
     def _clean(value: object) -> str:
-        """Trim a cell value to a string ('' for None)."""
+        """Trim a cell value to a string ('' for None).
+
+        Whole-number floats (e.g. 297032100292.0 from openpyxl) are converted
+        to plain integers so they don't appear as scientific notation.
+        """
+        if isinstance(value, float):
+            int_val = int(value)
+            if value == int_val:
+                return str(int_val)
         return "" if value is None else str(value).strip()
 
     @staticmethod

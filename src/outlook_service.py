@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-from html import unescape
 from typing import Optional
 
 from src.exceptions import OutlookConnectionError, TemplateNotFoundError
@@ -209,36 +208,39 @@ class OutlookService:
         Replaces the configured placeholder when present in either the HTML body
         or the plain-text body; otherwise appends the table just before
         ``</body>`` (or at the end) so the existing HTML remains intact.
+        The original HTML is never unescaped — replacement is performed on the
+        raw HTML string so no entities are corrupted.
         """
         body = html_body or ""
-        normalized_body = unescape(body)
 
         if self.table_placeholder:
-            placeholder_tokens = [
-                self.table_placeholder,
-                self.table_placeholder.replace("{", "{ "),
-                self.table_placeholder.replace("}", " }"),
-                self.table_placeholder.replace("{{", "{{ ").replace("}}", " }}"),
-                self.table_placeholder.replace("{{", "{{").replace("}}", "}}"),
+            ph = self.table_placeholder
+            # Outlook may store the placeholder as-is, with entity-encoded
+            # curly braces (&#123; / &#125;), or with added spaces.
+            candidates = [
+                ph,
+                ph.replace("{", "&#123;").replace("}", "&#125;"),
+                ph.replace("{{", "{{ ").replace("}}", " }}"),
+                ph.replace("{", "{ ").replace("}", " }"),
             ]
-            seen = set()
-            for token in placeholder_tokens:
+            seen: set = set()
+            for token in candidates:
                 if token in seen:
                     continue
                 seen.add(token)
-                if token in normalized_body:
-                    return normalized_body.replace(token, table_html, 1), None
+                if token in body:
+                    return body.replace(token, table_html, 1), None
 
             if plain_body:
-                for token in placeholder_tokens:
+                for token in candidates:
                     if token in plain_body:
                         return None, plain_body.replace(token, table_html, 1)
 
-        lower = normalized_body.lower()
+        lower = body.lower()
         idx = lower.rfind("</body>")
         if idx != -1:
-            return normalized_body[:idx] + table_html + normalized_body[idx:], None
-        return normalized_body + table_html, None
+            return body[:idx] + table_html + body[idx:], None
+        return body + table_html, None
 
 
 __all__ = ["OutlookService"]
