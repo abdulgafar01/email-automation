@@ -10,13 +10,13 @@ from __future__ import annotations
 from html import escape
 from typing import Iterable, Optional, Sequence
 
-_TABLE_ATTRS = 'border="1" cellspacing="0" cellpadding="5"'
+_TABLE_ATTRS = 'border="1" cellspacing="0" cellpadding="5" dir="ltr" style="direction:ltr; text-align:left;"'
 
 
 def _cell(value: object) -> str:
     """Render a single ``<td>`` from *value* (escaped)."""
     text = "" if value is None else str(value).strip()
-    return f"<td>{escape(text)}</td>"
+    return f'<td dir="ltr" style="direction:ltr; text-align:left;">{escape(text)}</td>'
 
 
 def generate_html_table(
