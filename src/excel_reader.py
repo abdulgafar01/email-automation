@@ -36,13 +36,18 @@ class ExcelReader:
         if not self.path.exists():
             raise WorkbookError(f"Workbook not found: {self.path}")
 
-        wb = load_workbook(self.path, read_only=True)
+        wb = load_workbook(self.path)
         try:
             ws = wb[self.sheet_name] if self.sheet_name else wb.worksheets[0]
             # To preserve formatting, iterate through cells and get formatted values
             rows = []
             for row in ws.iter_rows():
-                rows.append([cell.value if cell.data_type != 'd' else cell.style.number_format.lower() != 'general' and cell.value.strftime('%#m/%#d/%Y') or cell.value for cell in row])
+                rows.append([
+                    cell.value if cell.data_type != 'd' else (
+                        cell.value.strftime('%#m/%#d/%Y') if cell.number_format and cell.number_format != 'General' else cell.value
+                    )
+                    for cell in row
+                ])
 
             try:
                 header_row = next(iter(rows))
