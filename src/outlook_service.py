@@ -193,6 +193,19 @@ class OutlookService:
         ph_found = self._any_placeholder_in(raw_html, raw_plain)
         log.info("Checking template HTML for placeholder...")
         log.info("Placeholder present: %s", ph_found)
+        if not ph_found:
+            log.warning(
+                "Placeholder diagnostics — "
+                "'TABLE' word in HTML: %s | "
+                "'{' brace in HTML: %s | "
+                "HTML body length: %d chars | "
+                "Plain body length: %d chars. "
+                "Open debug_template.html and search for the placeholder text.",
+                "TABLE" in raw_html.upper(),
+                "{" in raw_html,
+                len(raw_html),
+                len(raw_plain),
+            )
         _save_debug_html(raw_html)
 
         # 4. Body — generate table (with headers when available) and insert.
