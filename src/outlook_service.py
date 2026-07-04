@@ -287,7 +287,7 @@ class OutlookService:
         """
         body = html_body or ""
 
-        # 1. HTML comment placeholder
+        # 1. HTML comment placeholder — as an actual HTML comment
         if self._HTML_COMMENT_PH in body:
             return (
                 body.replace(self._HTML_COMMENT_PH, table_html, 1),
@@ -295,13 +295,32 @@ class OutlookService:
                 "HTML comment placeholder",
             )
 
-        # 2. DIV placeholder
+        # 1b. Same comment typed as *visible text* in Outlook's compose window.
+        #     Outlook HTML-escapes < and > in body text, so it becomes
+        #     &lt;!--TABLE_PLACEHOLDER--&gt; in HTMLBody.
+        _esc_comment = "&lt;!--TABLE_PLACEHOLDER--&gt;"
+        if _esc_comment in body:
+            return (
+                body.replace(_esc_comment, table_html, 1),
+                None,
+                "HTML comment placeholder (escaped text)",
+            )
+
+        # 2. DIV placeholder — as actual HTML
         if self._DIV_PH in body:
             return (
                 body.replace(self._DIV_PH, table_html, 1),
                 None,
                 "DIV placeholder",
             )
+
+        # 2b. DIV typed as visible text (< and > escaped by Outlook)
+        _esc_div = "&lt;div id=&quot;TABLE_PLACEHOLDER&quot;&gt;&lt;/div&gt;"
+        _esc_div_alt = '&lt;div id="TABLE_PLACEHOLDER"&gt;&lt;/div&gt;'
+        if _esc_div in body:
+            return body.replace(_esc_div, table_html, 1), None, "DIV placeholder (escaped text)"
+        if _esc_div_alt in body:
+            return body.replace(_esc_div_alt, table_html, 1), None, "DIV placeholder (escaped text)"
 
         if self.table_placeholder:
             ph = self.table_placeholder
@@ -338,13 +357,17 @@ class OutlookService:
                     "Regex (bidi/span-tolerant)",
                 )
 
-            # 7. Plain-text body match
-            if plain_body and ph in plain_body:
-                return (
-                    None,
-                    plain_body.replace(ph, table_html, 1),
-                    "Plain text replacement",
-                )
+        # 7. Plain-text body — check fixed placeholders then configured token.
+        #    Checks all supported forms so _any_placeholder_in() and
+        #    _insert_table() never disagree.
+        if plain_body:
+            for _ph in (self._HTML_COMMENT_PH, self._DIV_PH, self.table_placeholder):
+                if _ph and _ph in plain_body:
+                    return (
+                        None,
+                        plain_body.replace(_ph, table_html, 1),
+                        "Plain text replacement",
+                    )
 
         # 8. No placeholder found — warn and append before </body>
         log.warning(
