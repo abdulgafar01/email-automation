@@ -214,20 +214,25 @@ class OutlookService:
         normalized_body = unescape(body)
 
         if self.table_placeholder:
-            placeholder_pattern = re.compile(
-                rf"(?:\s|&nbsp;)*{re.escape(self.table_placeholder)}(?:\s|&nbsp;)*",
-                re.IGNORECASE,
-            )
-            if placeholder_pattern.search(normalized_body):
-                return (
-                    placeholder_pattern.sub(table_html, normalized_body, count=1),
-                    None,
-                )
-            if self.table_placeholder in normalized_body:
-                return normalized_body.replace(self.table_placeholder, table_html, 1), None
+            placeholder_tokens = [
+                self.table_placeholder,
+                self.table_placeholder.replace("{", "{ "),
+                self.table_placeholder.replace("}", " }"),
+                self.table_placeholder.replace("{{", "{{ ").replace("}}", " }}"),
+                self.table_placeholder.replace("{{", "{{").replace("}}", "}}"),
+            ]
+            seen = set()
+            for token in placeholder_tokens:
+                if token in seen:
+                    continue
+                seen.add(token)
+                if token in normalized_body:
+                    return normalized_body.replace(token, table_html, 1), None
 
-            if plain_body and self.table_placeholder in plain_body:
-                return None, plain_body.replace(self.table_placeholder, table_html, 1)
+            if plain_body:
+                for token in placeholder_tokens:
+                    if token in plain_body:
+                        return None, plain_body.replace(token, table_html, 1)
 
         lower = normalized_body.lower()
         idx = lower.rfind("</body>")
