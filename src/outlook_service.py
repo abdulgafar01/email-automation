@@ -197,6 +197,15 @@ class OutlookService:
         return entry_id
 
     # --- helpers ----------------------------------------------------------
+    # Unicode bidirectional / zero-width control characters that Outlook's
+    # Word HTML engine silently inserts between characters of LTR text
+    # (e.g. {{TABLE}}) embedded in an Arabic (RTL) email body.
+    _BIDI_MARKS: str = (
+        "\u200B\u200C\u200D\u200E\u200F"   # zero-width & directional marks
+        "\u202A\u202B\u202C\u202D\u202E"   # LTR/RTL embedding & override
+        "\uFEFF"                            # BOM / zero-width no-break space
+    )
+
     def _insert_table(
         self,
         html_body: Optional[str],
@@ -205,36 +214,55 @@ class OutlookService:
     ) -> tuple[Optional[str], Optional[str]]:
         """Insert *table_html* into the draft body.
 
-        Replaces the configured placeholder when present in either the HTML body
-        or the plain-text body; otherwise appends the table just before
-        ``</body>`` (or at the end) so the existing HTML remains intact.
-        The original HTML is never unescaped — replacement is performed on the
-        raw HTML string so no entities are corrupted.
+        Replaces the configured placeholder when present in the HTML or
+        plain-text body; otherwise appends before ``</body>`` (or at end).
+
+        Strategy (tried in order):
+        1. Literal substring match — works for non-Arabic templates.
+        2. HTML entity-encoded braces (``&#123;``/``&#125;``).
+        3. Space-padded braces (``{{ TABLE }}``).
+        4. Regex match tolerating Unicode bidi marks and Word-HTML ``<span>``/
+           ``<font>`` tags inserted *between* each character of the token.
+           This is the common failure mode in Arabic / RTL Outlook drafts.
+        5. Plain-text body match (last HTML resort before full append).
         """
         body = html_body or ""
 
         if self.table_placeholder:
             ph = self.table_placeholder
-            # Outlook may store the placeholder as-is, with entity-encoded
-            # curly braces (&#123; / &#125;), or with added spaces.
-            candidates = [
-                ph,
-                ph.replace("{", "&#123;").replace("}", "&#125;"),
-                ph.replace("{{", "{{ ").replace("}}", " }}"),
-                ph.replace("{", "{ ").replace("}", " }"),
-            ]
-            seen: set = set()
-            for token in candidates:
-                if token in seen:
-                    continue
-                seen.add(token)
-                if token in body:
-                    return body.replace(token, table_html, 1), None
 
-            if plain_body:
-                for token in candidates:
-                    if token in plain_body:
-                        return None, plain_body.replace(token, table_html, 1)
+            # 1. Literal match.
+            if ph in body:
+                return body.replace(ph, table_html, 1), None
+
+            # 2. HTML entity-encoded curly braces (&#123; / &#125;).
+            encoded = ph.replace("{", "&#123;").replace("}", "&#125;")
+            if encoded != ph and encoded in body:
+                return body.replace(encoded, table_html, 1), None
+
+            # 3. Space-padded variant some Outlook versions produce.
+            padded = ph.replace("{{", "{{ ").replace("}}", " }}")
+            if padded != ph and padded in body:
+                return body.replace(padded, table_html, 1), None
+
+            # 4. Regex: between every two consecutive characters of the
+            #    placeholder allow any combination of Unicode bidi/zero-width
+            #    marks AND opening/closing Word-HTML <span>/<font> tags.
+            #    Non-raw string so \uXXXX escapes are real Unicode characters.
+            _between = (
+                "(?:"
+                "[" + self._BIDI_MARKS + "]"
+                "|</?(?:span|font)[^>]{0,400}>"
+                ")*"
+            )
+            pattern = _between.join(re.escape(c) for c in ph)
+            m = re.search(pattern, body, re.DOTALL)
+            if m:
+                return body[: m.start()] + table_html + body[m.end() :], None
+
+            # 5. Plain-text body (sets Body, not HTMLBody — last HTML resort).
+            if plain_body and ph in plain_body:
+                return None, plain_body.replace(ph, table_html, 1)
 
         lower = body.lower()
         idx = lower.rfind("</body>")
