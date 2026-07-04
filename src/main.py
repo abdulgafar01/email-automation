@@ -35,7 +35,7 @@ def run() -> int:
     # 1. Read contacts ----------------------------------------------------
     log.info("Using workbook: %s", cfg.excel_path)
     try:
-        reader = ExcelReader(cfg.excel_path)
+        reader = ExcelReader(cfg.excel_path, lookup_path=cfg.lookup_excel_path)
         contacts = reader.read()
         if cfg.max_rows and cfg.max_rows > 0:
             contacts = contacts[: cfg.max_rows]

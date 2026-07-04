@@ -17,6 +17,7 @@ def _resolve(path: Path) -> Path:
 class AppConfig:
     template_subject: str
     excel_path: Path
+    lookup_excel_path: Optional[Path]
     data_dir: Path
     log_dir: Path
     drafts_folder: str
@@ -32,8 +33,8 @@ class AppConfig:
 # Environment variables override these.
 DEFAULT_TEMPLATE_SUBJECT = os.getenv("TEMPLATE_SUBJECT", "MASTER TEMPLATE")
 EXPLICIT_EXCEL_PATH = os.getenv("EXCEL_PATH", "")
-DEFAULT_DATA_DIR = Path(__file__).resolve().parent
-DEFAULT_LOG_DIR = Path(__file__).resolve().parent
+DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
+DEFAULT_LOG_DIR = PROJECT_ROOT / "logs"
 DEFAULT_DRAFTS_FOLDER = "drafts"
 DEFAULT_OUTLOOK_ENTRYID = os.getenv("TEMPLATE_ENTRYID", "")
 DEFAULT_SUBJECT_COLUMNS = 8
@@ -46,17 +47,30 @@ DEFAULT_MAX_ROWS = int(val) if (val := os.getenv("MAX_ROWS")) else None
 def discover_excel(data_dir: Path, explicit: Optional[str] = None) -> Path:
     """Resolve which workbook to read.
 
-    If *explicit* is given (EXCEL_PATH), it is used as-is. Otherwise the first
-    ``.xlsx`` file in *data_dir* (alphabetical, ignoring Excel lock files
-    ``~$``) is chosen. When none exist, returns ``data_dir/contacts.xlsx`` so
-    callers raise a clear "not found" error pointing at the data folder.
+    If *explicit* is given (EXCEL_PATH), it is used as-is. Otherwise the
+    preferred workbook is ``data_dir/contacts.xlsx`` when present. If that is
+    absent, the first non-lock non-lookup workbook is chosen. When none exist,
+    returns ``data_dir/contacts.xlsx`` so callers raise a clear "not found"
+    error pointing at the data folder.
     """
     if explicit:
         return _resolve(Path(explicit))
+
+    preferred = data_dir / "contacts.xlsx"
+    if preferred.exists():
+        return preferred
+
     candidates = sorted(
-        p for p in data_dir.glob("*.xlsx") if not p.name.startswith("~$")
+        p for p in data_dir.glob("*.xlsx")
+        if not p.name.startswith("~$") and p.name != "KOC_Dir.xlsx"
     )
     return candidates[0] if candidates else (data_dir / "contacts.xlsx")
+
+
+def discover_lookup_excel(data_dir: Path) -> Optional[Path]:
+    """Return the optional lookup workbook used to resolve recipient emails."""
+    lookup_path = data_dir / "KOC_Dir.xlsx"
+    return lookup_path if lookup_path.exists() else None
 
 
 def load_config() -> AppConfig:
@@ -78,6 +92,7 @@ def load_config() -> AppConfig:
     cfg = AppConfig(
         template_subject=DEFAULT_TEMPLATE_SUBJECT,
         excel_path=discover_excel(DEFAULT_DATA_DIR, EXPLICIT_EXCEL_PATH),
+        lookup_excel_path=discover_lookup_excel(DEFAULT_DATA_DIR),
         data_dir=DEFAULT_DATA_DIR,
         log_dir=DEFAULT_LOG_DIR,
         drafts_folder=DEFAULT_DRAFTS_FOLDER,

@@ -2,7 +2,8 @@
 
 Reads the first worksheet, treats the first row as headers, and returns one
 :class:`~src.models.Contact` per non-empty data row. Rows are positional —
-the recipient is column A and the subject is built from the first columns.
+the recipient is resolved through the optional lookup workbook, and the
+subject is built from the first columns.
 """
 
 from __future__ import annotations
@@ -27,9 +28,15 @@ class ExcelReader:
         sheet_name: Optional sheet to read; defaults to the first/active sheet.
     """
 
-    def __init__(self, path: Path, sheet_name: str | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        sheet_name: str | None = None,
+        lookup_path: Path | None = None,
+    ) -> None:
         self.path = Path(path)
         self.sheet_name = sheet_name
+        self.lookup_path = Path(lookup_path) if lookup_path is not None else None
 
     def read(self) -> List[Contact]:
         """Read all non-empty contact rows from the first worksheet."""
@@ -54,6 +61,8 @@ class ExcelReader:
             raise EmptyWorkbookError(f"No header columns in: {self.path}")
         headers = headers[:col_count]
 
+        lookup_map = self._load_lookup_mapping()
+
         contacts: List[Contact] = []
         for row_number, raw in enumerate(rows, start=2):
             if raw is None:
@@ -64,7 +73,10 @@ class ExcelReader:
                 for i in range(col_count)
             ]
             contact = Contact(
-                values=values, row_number=row_number, headers=headers
+                values=values,
+                row_number=row_number,
+                headers=headers,
+                lookup_map=lookup_map,
             )
             if contact.is_empty():
                 continue  # ignore empty rows
@@ -144,6 +156,47 @@ class ExcelReader:
         finally:
             wb.close()
 
+    def _load_lookup_mapping(self) -> dict[str, str]:
+        """Load KOC ID -> email mapping from the optional lookup workbook."""
+        lookup_path = self.lookup_path or (self.path.parent / "KOC_Dir.xlsx")
+        if lookup_path is None or not Path(lookup_path).exists():
+            return {}
+
+        try:
+            wb = load_workbook(lookup_path, data_only=True)
+        except Exception as exc:
+            log.warning("Lookup workbook could not be read: %s", exc)
+            return {}
+
+        try:
+            ws = wb.worksheets[0]
+            rows = [[cell.value for cell in row] for row in ws.iter_rows()]
+        finally:
+            wb.close()
+
+        if not rows:
+            return {}
+
+        headers = [self._clean(c) for c in rows[0]]
+        key_index = self._find_column_index(headers, ["koc id", "koc_id", "id_code", "id code"])
+        email_index = self._find_column_index(
+            headers,
+            ["email", "email address", "emailaddress", "e-mail", "recipient"],
+        )
+        if key_index is None or email_index is None:
+            return {}
+
+        mapping: dict[str, str] = {}
+        for row in rows[1:]:
+            values = [self._clean(cell) for cell in row]
+            if not values:
+                continue
+            key = values[key_index] if key_index < len(values) else ""
+            email = values[email_index] if email_index < len(values) else ""
+            if key and email:
+                mapping[key] = email
+        return mapping
+
     @staticmethod
     def _clean(value: object) -> str:
         """Trim a cell value to a string ('' for None).
@@ -156,6 +209,15 @@ class ExcelReader:
             if value == int_val:
                 return str(int_val)
         return "" if value is None else str(value).strip()
+
+    @staticmethod
+    def _find_column_index(headers: List[str], candidates: List[str]) -> int | None:
+        """Find a header index by comparing normalized header names."""
+        normalized = {candidate.lower() for candidate in candidates}
+        for index, header in enumerate(headers):
+            if header.lower() in normalized:
+                return index
+        return None
 
     @staticmethod
     def _last_non_empty_index(cells: List[str]) -> int:
