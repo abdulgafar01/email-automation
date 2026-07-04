@@ -36,21 +36,13 @@ class ExcelReader:
         if not self.path.exists():
             raise WorkbookError(f"Workbook not found: {self.path}")
 
-        wb = load_workbook(self.path)
+        wb = load_workbook(self.path, data_only=True)
         try:
             ws = wb[self.sheet_name] if self.sheet_name else wb.worksheets[0]
-            # To preserve formatting, iterate through cells and get formatted values
-            rows = []
-            for row in ws.iter_rows():
-                rows.append([
-                    cell.value if cell.data_type != 'd' else (
-                        cell.value.strftime('%#m/%#d/%Y') if cell.number_format and cell.number_format != 'General' else cell.value
-                    )
-                    for cell in row
-                ])
+            rows = ws.iter_rows(values_only=True)
 
             try:
-                header_row = next(iter(rows))
+                header_row = next(rows)
             except StopIteration as exc:
                 raise EmptyWorkbookError(f"Workbook is empty: {self.path}") from exc
 
@@ -62,11 +54,19 @@ class ExcelReader:
             headers = headers[:col_count]
 
             contacts: List[Contact] = []
-            for row_number, raw in enumerate(rows[1:], start=2):
+            for row_number, raw in enumerate(rows, start=2):
                 if raw is None:
                     continue
+                
+                processed_values = []
+                for cell_value in raw:
+                    if isinstance(cell_value, datetime):
+                        processed_values.append(cell_value.strftime('%#m/%#d/%Y'))
+                    else:
+                        processed_values.append(cell_value)
+
                 values = [
-                    self._clean(raw[i] if i < len(raw) else None)
+                    self._clean(processed_values[i] if i < len(processed_values) else None)
                     for i in range(col_count)
                 ]
                 contact = Contact(
