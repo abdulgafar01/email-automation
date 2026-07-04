@@ -27,26 +27,15 @@ def generate_html_table(
 
     Args:
         values:  The row's cell values, one ``<td>`` per value.
-        headers: Optional column headers; when provided they are rendered as a
-                 bold ``<th>`` header row above the data row.
+        headers: Optional column headers; retained for compatibility but not
+                 rendered as a header row.
 
     Returns:
         A complete ``<table>...</table>`` HTML string. Works for any number of
         columns.
     """
-    rows_html = []
-
-    if headers is not None:
-        header_cells = "".join(
-            f"<th>{escape('' if h is None else str(h).strip())}</th>"
-            for h in headers
-        )
-        rows_html.append(f"<tr>{header_cells}</tr>")
-
     data_cells = "".join(_cell(v) for v in values)
-    rows_html.append(f"<tr>{data_cells}</tr>")
-
-    body = "".join(rows_html)
+    body = f"<tr>{data_cells}</tr>"
     return f"<table {_TABLE_ATTRS}>{body}</table>"
 
 
