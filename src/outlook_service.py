@@ -174,7 +174,15 @@ class OutlookService:
         # 3. Body — insert a freshly generated table for every column.
         table_html = generate_html_table(contact.values)
         try:
-            new_mail.HTMLBody = self._insert_table(new_mail.HTMLBody, table_html)
+            html_body, plain_body = self._insert_table(
+                new_mail.HTMLBody,
+                table_html,
+                new_mail.Body,
+            )
+            if html_body is not None:
+                new_mail.HTMLBody = html_body
+            if plain_body is not None:
+                new_mail.Body = plain_body
         except Exception:  # pragma: no cover - plain-text template fallback
             new_mail.Body = f"{new_mail.Body}\n\n{table_html}"
 
@@ -190,12 +198,17 @@ class OutlookService:
         return entry_id
 
     # --- helpers ----------------------------------------------------------
-    def _insert_table(self, html_body: Optional[str], table_html: str) -> str:
-        """Insert *table_html* into *html_body*.
+    def _insert_table(
+        self,
+        html_body: Optional[str],
+        table_html: str,
+        plain_body: Optional[str] = None,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Insert *table_html* into the draft body.
 
-        Replaces the configured placeholder when present; otherwise appends the
-        table just before ``</body>`` (or at the end) so the existing HTML —
-        fonts, images, signature — is preserved.
+        Replaces the configured placeholder when present in either the HTML body
+        or the plain-text body; otherwise appends the table just before
+        ``</body>`` (or at the end) so the existing HTML remains intact.
         """
         body = html_body or ""
         normalized_body = unescape(body)
@@ -206,15 +219,21 @@ class OutlookService:
                 re.IGNORECASE,
             )
             if placeholder_pattern.search(normalized_body):
-                return placeholder_pattern.sub(table_html, normalized_body, count=1)
+                return (
+                    placeholder_pattern.sub(table_html, normalized_body, count=1),
+                    None,
+                )
             if self.table_placeholder in normalized_body:
-                return normalized_body.replace(self.table_placeholder, table_html, 1)
+                return normalized_body.replace(self.table_placeholder, table_html, 1), None
+
+            if plain_body and self.table_placeholder in plain_body:
+                return None, plain_body.replace(self.table_placeholder, table_html, 1)
 
         lower = normalized_body.lower()
         idx = lower.rfind("</body>")
         if idx != -1:
-            return normalized_body[:idx] + table_html + normalized_body[idx:]
-        return normalized_body + table_html
+            return normalized_body[:idx] + table_html + normalized_body[idx:], None
+        return normalized_body + table_html, None
 
 
 __all__ = ["OutlookService"]
