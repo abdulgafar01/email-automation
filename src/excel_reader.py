@@ -36,13 +36,16 @@ class ExcelReader:
         if not self.path.exists():
             raise WorkbookError(f"Workbook not found: {self.path}")
 
-        wb = load_workbook(self.path, read_only=True, data_only=True)
+        wb = load_workbook(self.path, read_only=True)
         try:
             ws = wb[self.sheet_name] if self.sheet_name else wb.worksheets[0]
-            rows = ws.iter_rows(values_only=True)
+            # To preserve formatting, iterate through cells and get formatted values
+            rows = []
+            for row in ws.iter_rows():
+                rows.append([cell.value if cell.data_type != 'd' else cell.style.number_format.lower() != 'general' and cell.value.strftime('%#m/%#d/%Y') or cell.value for cell in row])
 
             try:
-                header_row = next(rows)
+                header_row = next(iter(rows))
             except StopIteration as exc:
                 raise EmptyWorkbookError(f"Workbook is empty: {self.path}") from exc
 
@@ -54,7 +57,7 @@ class ExcelReader:
             headers = headers[:col_count]
 
             contacts: List[Contact] = []
-            for row_number, raw in enumerate(rows, start=2):
+            for row_number, raw in enumerate(rows[1:], start=2):
                 if raw is None:
                     continue
                 values = [

@@ -25,20 +25,22 @@ class AppConfig:
     table_placeholder: str
     cc_address: str
     never_send: bool
+    max_rows: Optional[int] = None
 
 
-# Defaults — override with environment variables if needed
-DEFAULT_TEMPLATE_SUBJECT = os.getenv("TEMPLATE_SUBJECT", "MASTER TEMPLATE")
-DEFAULT_DATA_DIR = _resolve(Path(os.getenv("DATA_DIR", "data")))
-# Explicit workbook path (optional). When unset, any .xlsx in DATA_DIR is used.
-EXPLICIT_EXCEL_PATH = os.getenv("EXCEL_PATH")
-DEFAULT_LOG_DIR = _resolve(Path(os.getenv("LOG_DIR", "logs")))
-DEFAULT_DRAFTS_FOLDER = os.getenv("DRAFTS_FOLDER", "Drafts")
-DEFAULT_OUTLOOK_ENTRYID = os.getenv("TEMPLATE_ENTRYID")
-DEFAULT_SUBJECT_COLUMNS = int(os.getenv("SUBJECT_COLUMNS", "7"))
+# --- Defaults ---
+# Environment variables override these.
+DEFAULT_TEMPLATE_SUBJECT = os.getenv("TEMPLATE_SUBJECT", "No subject")
+EXPLICIT_EXCEL_PATH = os.getenv("EXCEL_PATH", "")
+DEFAULT_DATA_DIR = Path(__file__).resolve().parent
+DEFAULT_LOG_DIR = Path(__file__).resolve().parent
+DEFAULT_DRAFTS_FOLDER = "drafts"
+DEFAULT_OUTLOOK_ENTRYID = os.getenv("TEMPLATE_ENTRYID", "")
+DEFAULT_SUBJECT_COLUMNS = 1
 DEFAULT_TABLE_PLACEHOLDER = os.getenv("TABLE_PLACEHOLDER", "{{TABLE}}")
 # Fixed Cc applied to every draft. Use ';' to separate multiple addresses.
 DEFAULT_CC_ADDRESS = os.getenv("CC_ADDRESS", "")
+DEFAULT_MAX_ROWS = int(val) if (val := os.getenv("MAX_ROWS")) else None
 
 
 def discover_excel(data_dir: Path, explicit: Optional[str] = None) -> Path:
@@ -71,6 +73,7 @@ def load_config() -> AppConfig:
       - SUBJECT_COLUMNS
       - TABLE_PLACEHOLDER
       - CC_ADDRESS
+      - MAX_ROWS
     """
     cfg = AppConfig(
         template_subject=DEFAULT_TEMPLATE_SUBJECT,
@@ -83,6 +86,7 @@ def load_config() -> AppConfig:
         table_placeholder=DEFAULT_TABLE_PLACEHOLDER,
         cc_address=DEFAULT_CC_ADDRESS,
         never_send=True,  # safety: never send emails from this tool
+        max_rows=DEFAULT_MAX_ROWS,
     )
     return cfg
 

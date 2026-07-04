@@ -37,6 +37,9 @@ def run() -> int:
     try:
         reader = ExcelReader(cfg.excel_path)
         contacts = reader.read()
+        if cfg.max_rows and cfg.max_rows > 0:
+            contacts = contacts[: cfg.max_rows]
+            log.info("Limiting to first %d rows (MAX_ROWS)", cfg.max_rows)
     except WorkbookError as exc:
         log.error("Workbook error: %s", exc)
         log.error("Place an .xlsx file in: %s", cfg.data_dir)

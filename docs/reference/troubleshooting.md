@@ -78,7 +78,7 @@ interactive — never as `SYSTEM`. See
 
 ```mermaid
 flowchart TD
-    A[Something failed] --> B[Open newest logs/run_*.log]
+    A[Something failed] --> B["Open newest logs/run_*.log"]
     B --> C{Fatal line near top?}
     C -->|Workbook/Outlook/Template| D[Setup issue → fix config/data]
     C -->|per-row ERROR| E[Row issue → check that spreadsheet row]

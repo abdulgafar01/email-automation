@@ -52,11 +52,11 @@ discover_excel(Path("data"), "C:/x/June.xlsx")     # explicit wins
 
 ```mermaid
 flowchart TD
-    A{explicit given?} -->|yes| B[_resolve(explicit)]
-    A -->|no| C[glob data/*.xlsx<br/>skip ~$ lock files]
+    A{explicit given?} -->|yes| B["_resolve(explicit)"]
+    A -->|no| C["glob data/*.xlsx<br/>skip ~$ lock files"]
     C --> D{any?}
     D -->|yes| E[first alphabetically]
-    D -->|no| F[data_dir/contacts.xlsx<br/>→ clear not-found error]
+    D -->|no| F["data_dir/contacts.xlsx<br/>→ clear not-found error"]
 ```
 
 ### `_resolve(path) -> Path` (internal)

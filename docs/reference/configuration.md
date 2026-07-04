@@ -28,7 +28,7 @@ override — no code edits required.
 ```mermaid
 flowchart TD
     A{EXCEL_PATH set?} -->|yes| B[use it as-is<br/>resolved to project root if relative]
-    A -->|no| C[scan DATA_DIR for *.xlsx]
+    A -->|no| C["scan DATA_DIR for *.xlsx"]
     C --> D{any found?}
     D -->|yes| E[first alphabetically<br/>ignoring ~$ lock files]
     D -->|no| F[DATA_DIR/contacts.xlsx<br/>→ clear not-found error]

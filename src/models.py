@@ -32,8 +32,8 @@ class Contact:
         return self.values[0] if self.values else ""
 
     def subject(self, columns: int = 7) -> str:
-        """Build the subject by joining the first *columns* values with spaces."""
-        return " ".join(str(v).strip() for v in self.values[:columns])
+        """Build the subject by joining the first *columns* values with tabs."""
+        return "\t".join(str(v).strip() for v in self.values[:columns])
 
     def is_empty(self) -> bool:
         """Return True if every cell in the row is blank."""
