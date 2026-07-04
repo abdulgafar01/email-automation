@@ -78,7 +78,6 @@ class ExcelReader:
         log.info("Read %d contact(s) from %s", len(contacts), self.path.name)
         return contacts
 
-    @staticmethod
     def _read_rows_with_excel_com(self) -> List[List[object]]:
         """Read displayed cell text through Excel COM when available."""
         try:
