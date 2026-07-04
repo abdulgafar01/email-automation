@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+from html import unescape
 from typing import Optional
 
 from src.exceptions import OutlookConnectionError, TemplateNotFoundError
@@ -197,20 +198,23 @@ class OutlookService:
         fonts, images, signature — is preserved.
         """
         body = html_body or ""
+        normalized_body = unescape(body)
 
         if self.table_placeholder:
             placeholder_pattern = re.compile(
                 rf"(?:\s|&nbsp;)*{re.escape(self.table_placeholder)}(?:\s|&nbsp;)*",
                 re.IGNORECASE,
             )
-            if placeholder_pattern.search(body):
-                return placeholder_pattern.sub(table_html, body, count=1)
+            if placeholder_pattern.search(normalized_body):
+                return placeholder_pattern.sub(table_html, normalized_body, count=1)
+            if self.table_placeholder in normalized_body:
+                return normalized_body.replace(self.table_placeholder, table_html, 1)
 
-        lower = body.lower()
+        lower = normalized_body.lower()
         idx = lower.rfind("</body>")
         if idx != -1:
-            return body[:idx] + table_html + body[idx:]
-        return body + table_html
+            return normalized_body[:idx] + table_html + normalized_body[idx:]
+        return normalized_body + table_html
 
 
 __all__ = ["OutlookService"]
