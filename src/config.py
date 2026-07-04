@@ -30,7 +30,7 @@ class AppConfig:
 
 # --- Defaults ---
 # Environment variables override these.
-DEFAULT_TEMPLATE_SUBJECT = os.getenv("TEMPLATE_SUBJECT", "No subject")
+DEFAULT_TEMPLATE_SUBJECT = os.getenv("TEMPLATE_SUBJECT", "MASTER TEMPLATE")
 EXPLICIT_EXCEL_PATH = os.getenv("EXCEL_PATH", "")
 DEFAULT_DATA_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = Path(__file__).resolve().parent
