@@ -36,7 +36,7 @@ DEFAULT_DATA_DIR = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = Path(__file__).resolve().parent
 DEFAULT_DRAFTS_FOLDER = "drafts"
 DEFAULT_OUTLOOK_ENTRYID = os.getenv("TEMPLATE_ENTRYID", "")
-DEFAULT_SUBJECT_COLUMNS = 1
+DEFAULT_SUBJECT_COLUMNS = 8
 DEFAULT_TABLE_PLACEHOLDER = os.getenv("TABLE_PLACEHOLDER", "{{TABLE}}")
 # Fixed Cc applied to every draft. Use ';' to separate multiple addresses.
 DEFAULT_CC_ADDRESS = os.getenv("CC_ADDRESS", "")

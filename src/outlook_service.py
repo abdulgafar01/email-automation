@@ -11,6 +11,7 @@ template is never modified and no email is ever sent.
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from typing import Optional
 
@@ -45,7 +46,7 @@ class OutlookService:
         self,
         template_subject: str,
         template_entryid: Optional[str] = None,
-        subject_columns: int = 7,
+        subject_columns: int = 8,
         table_placeholder: str = "{{TABLE}}",
         cc_address: str = "",
     ) -> None:
@@ -197,8 +198,13 @@ class OutlookService:
         """
         body = html_body or ""
 
-        if self.table_placeholder and self.table_placeholder in body:
-            return body.replace(self.table_placeholder, table_html)
+        if self.table_placeholder:
+            placeholder_pattern = re.compile(
+                rf"(?:\s|&nbsp;)*{re.escape(self.table_placeholder)}(?:\s|&nbsp;)*",
+                re.IGNORECASE,
+            )
+            if placeholder_pattern.search(body):
+                return placeholder_pattern.sub(table_html, body, count=1)
 
         lower = body.lower()
         idx = lower.rfind("</body>")

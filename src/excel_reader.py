@@ -7,11 +7,12 @@ the recipient is column A and the subject is built from the first columns.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import List
 
 from openpyxl import load_workbook
+from openpyxl.utils.datetime import from_excel
 
 from src.exceptions import EmptyWorkbookError, WorkbookError
 from src.logger import get_logger
@@ -40,21 +41,10 @@ class ExcelReader:
         wb = load_workbook(self.path, data_only=True)
         try:
             ws = wb[self.sheet_name] if self.sheet_name else wb.worksheets[0]
-            
-            # To preserve formatting, iterate through cells and get formatted values
-            rows_from_worksheet = []
-            for row in ws.iter_rows():
-                row_values = []
-                for cell in row:
-                    if isinstance(cell.value, datetime):
-                        # Format datetime objects, checking the number format to avoid reformatting dates already as text
-                        if cell.number_format and 'd' in cell.number_format.lower():
-                             row_values.append(cell.value.strftime('%#m/%#d/%Y'))
-                        else:
-                            row_values.append(cell.value)
-                    else:
-                        row_values.append(cell.value)
-                rows_from_worksheet.append(row_values)
+            rows_from_worksheet = [
+                [self._format_cell(cell, wb.epoch) for cell in row]
+                for row in ws.iter_rows()
+            ]
 
             rows = iter(rows_from_worksheet)
 
@@ -95,6 +85,27 @@ class ExcelReader:
 
         log.info("Read %d contact(s) from %s", len(contacts), self.path.name)
         return contacts
+
+    @staticmethod
+    def _format_cell(cell: object, epoch: object) -> object:
+        """Return a cell value while preserving Excel-style date display."""
+        value = getattr(cell, "value", None)
+        if value is None:
+            return None
+
+        if getattr(cell, "is_date", False):
+            if isinstance(value, datetime):
+                dt = value
+            elif isinstance(value, date):
+                dt = datetime.combine(value, datetime.min.time())
+            else:
+                try:
+                    dt = from_excel(value, epoch)
+                except Exception:
+                    return value
+            return f"{dt.month}/{dt.day}/{dt.year}"
+
+        return value
 
     @staticmethod
     def _clean(value: object) -> str:
