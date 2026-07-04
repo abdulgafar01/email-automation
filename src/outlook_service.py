@@ -29,6 +29,21 @@ OL_FORMAT_HTML = 2
 OL_SAVE_AS_TEMPLATE = 2
 
 
+def _save_debug_html(html: str) -> None:
+    """Write *html* to ``debug_template.html`` in the working directory.
+
+    Called once per run so you can open the file in a browser to inspect
+    exactly what HTML Outlook returned before any placeholder replacement.
+    """
+    try:
+        path = os.path.join(os.getcwd(), "debug_template.html")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(html)
+        log.info("Template HTML saved for inspection: %s", path)
+    except Exception as exc:
+        log.warning("Could not save debug_template.html: %s", exc)
+
+
 class OutlookService:
     """Thin wrapper around the Outlook COM application.
 
@@ -168,30 +183,49 @@ class OutlookService:
             new_mail.CC = self.cc_address
 
         # 2. Subject — first N columns joined by spaces.
-        new_mail.Subject = contact.subject(self.subject_columns)
+        subject = contact.subject(self.subject_columns)
+        new_mail.Subject = subject
 
-        # 3. Body — insert a freshly generated table for every column.
-        table_html = generate_html_table(contact.values)
+        # 3. Debug: capture the template HTML before any modification so it
+        #    can be inspected in debug_template.html if something goes wrong.
+        raw_html = new_mail.HTMLBody or ""
+        raw_plain = new_mail.Body or ""
+        ph_found = self._any_placeholder_in(raw_html, raw_plain)
+        log.info("Checking template HTML for placeholder...")
+        log.info("Placeholder present: %s", ph_found)
+        _save_debug_html(raw_html)
+
+        # 4. Body — generate table (with headers when available) and insert.
+        table_html = generate_html_table(
+            contact.values,
+            headers=contact.headers or None,
+        )
+        strategy = "Append at end"
         try:
-            html_body, plain_body = self._insert_table(
-                new_mail.HTMLBody,
+            html_body, plain_body, strategy = self._insert_table(
+                raw_html,
                 table_html,
-                new_mail.Body,
+                raw_plain,
             )
             if html_body is not None:
                 new_mail.HTMLBody = html_body
             if plain_body is not None:
                 new_mail.Body = plain_body
-        except Exception:  # pragma: no cover - plain-text template fallback
-            new_mail.Body = f"{new_mail.Body}\n\n{table_html}"
+        except Exception as exc:  # pragma: no cover
+            log.warning("_insert_table failed (%s); appending to Body", exc)
+            new_mail.Body = f"{raw_plain}\n\n{table_html}"
+            strategy = "Plain body append (exception fallback)"
 
         new_mail.Save()  # saved as a draft; never .Send()
 
         entry_id = str(new_mail.EntryID)
         log.info(
-            "Draft created for '%s' (row %d) -> EntryID %s",
+            "Recipient: %s | Subject: %s | Placeholder Found: %s | "
+            "Insertion Strategy: %s | Draft Saved: EntryID %s",
             contact.recipient,
-            contact.row_number,
+            subject,
+            ph_found,
+            strategy,
             entry_id,
         )
         return entry_id
@@ -205,50 +239,77 @@ class OutlookService:
         "\u202A\u202B\u202C\u202D\u202E"   # LTR/RTL embedding & override
         "\uFEFF"                            # BOM / zero-width no-break space
     )
+    # Additional fixed placeholders tried before the configured token so
+    # users can embed a cleaner marker in their master template.
+    _HTML_COMMENT_PH: str = "<!--TABLE_PLACEHOLDER-->"
+    _DIV_PH: str = '<div id="TABLE_PLACEHOLDER"></div>'
+
+    def _any_placeholder_in(self, html: str, plain: str) -> bool:
+        """Return True if any supported placeholder is found in *html* or *plain*."""
+        candidates = [self._HTML_COMMENT_PH, self._DIV_PH, self.table_placeholder]
+        return any(ph and (ph in html or ph in plain) for ph in candidates)
 
     def _insert_table(
         self,
         html_body: Optional[str],
         table_html: str,
         plain_body: Optional[str] = None,
-    ) -> tuple[Optional[str], Optional[str]]:
+    ) -> tuple[Optional[str], Optional[str], str]:
         """Insert *table_html* into the draft body.
 
-        Replaces the configured placeholder when present in the HTML or
-        plain-text body; otherwise appends before ``</body>`` (or at end).
+        Returns ``(html_body, plain_body, strategy_name)``.  Exactly one of
+        *html_body* / *plain_body* is non-None when a placeholder is replaced;
+        on fallback append both html variants may be non-None.
 
-        Strategy (tried in order):
-        1. Literal substring match — works for non-Arabic templates.
-        2. HTML entity-encoded braces (``&#123;``/``&#125;``).
-        3. Space-padded braces (``{{ TABLE }}``).
-        4. Regex match tolerating Unicode bidi marks and Word-HTML ``<span>``/
-           ``<font>`` tags inserted *between* each character of the token.
-           This is the common failure mode in Arabic / RTL Outlook drafts.
-        5. Plain-text body match (last HTML resort before full append).
+        Replacement strategies tried in order:
+        1. HTML comment  ``<!--TABLE_PLACEHOLDER-->``
+        2. DIV element   ``<div id="TABLE_PLACEHOLDER"></div>``
+        3. Literal       configured token (default ``{{TABLE}}``)
+        4. Entity-encoded curly braces (``&#123;``/``&#125;``)
+        5. Space-padded  ``{{ TABLE }}``
+        6. Regex — tolerates Unicode bidi marks and ``<span>``/``<font>`` tags
+           inserted between characters (Arabic / RTL Outlook drafts)
+        7. Plain-text body match
+        8. Append before ``</body>`` (final fallback — logs a warning)
         """
         body = html_body or ""
+
+        # 1. HTML comment placeholder
+        if self._HTML_COMMENT_PH in body:
+            return (
+                body.replace(self._HTML_COMMENT_PH, table_html, 1),
+                None,
+                "HTML comment placeholder",
+            )
+
+        # 2. DIV placeholder
+        if self._DIV_PH in body:
+            return (
+                body.replace(self._DIV_PH, table_html, 1),
+                None,
+                "DIV placeholder",
+            )
 
         if self.table_placeholder:
             ph = self.table_placeholder
 
-            # 1. Literal match.
+            # 3. Literal match
             if ph in body:
-                return body.replace(ph, table_html, 1), None
+                return body.replace(ph, table_html, 1), None, "Literal {{TABLE}}"
 
-            # 2. HTML entity-encoded curly braces (&#123; / &#125;).
+            # 4. HTML entity-encoded curly braces (&#123; / &#125;)
             encoded = ph.replace("{", "&#123;").replace("}", "&#125;")
             if encoded != ph and encoded in body:
-                return body.replace(encoded, table_html, 1), None
+                return body.replace(encoded, table_html, 1), None, "HTML entity replacement"
 
-            # 3. Space-padded variant some Outlook versions produce.
+            # 5. Space-padded variant some Outlook versions produce
             padded = ph.replace("{{", "{{ ").replace("}}", " }}")
             if padded != ph and padded in body:
-                return body.replace(padded, table_html, 1), None
+                return body.replace(padded, table_html, 1), None, "Space-padded {{TABLE}}"
 
-            # 4. Regex: between every two consecutive characters of the
-            #    placeholder allow any combination of Unicode bidi/zero-width
-            #    marks AND opening/closing Word-HTML <span>/<font> tags.
-            #    Non-raw string so \uXXXX escapes are real Unicode characters.
+            # 6. Regex: between every character of the placeholder allow
+            #    Unicode bidi/zero-width marks and Word-HTML span/font tags.
+            #    Non-raw string so \uXXXX are real Unicode code points.
             _between = (
                 "(?:"
                 "[" + self._BIDI_MARKS + "]"
@@ -258,17 +319,31 @@ class OutlookService:
             pattern = _between.join(re.escape(c) for c in ph)
             m = re.search(pattern, body, re.DOTALL)
             if m:
-                return body[: m.start()] + table_html + body[m.end() :], None
+                return (
+                    body[: m.start()] + table_html + body[m.end() :],
+                    None,
+                    "Regex (bidi/span-tolerant)",
+                )
 
-            # 5. Plain-text body (sets Body, not HTMLBody — last HTML resort).
+            # 7. Plain-text body match
             if plain_body and ph in plain_body:
-                return None, plain_body.replace(ph, table_html, 1)
+                return (
+                    None,
+                    plain_body.replace(ph, table_html, 1),
+                    "Plain text replacement",
+                )
 
+        # 8. No placeholder found — warn and append before </body>
+        log.warning(
+            "Placeholder '%s' not found in template HTML or plain body; "
+            "appending table before </body>.",
+            self.table_placeholder,
+        )
         lower = body.lower()
         idx = lower.rfind("</body>")
         if idx != -1:
-            return body[:idx] + table_html + body[idx:], None
-        return body + table_html, None
+            return body[:idx] + table_html + body[idx:], None, "Append before </body>"
+        return body + table_html, None, "Append at end"
 
 
 __all__ = ["OutlookService"]
